@@ -35,6 +35,10 @@
 			<id>github</id>
 			<url>https://maven.pkg.github.com/olekraua/resume-platform-libs</url>
 		</repository>
+		<repository>
+			<id>github-resume-contracts</id>
+			<url>https://maven.pkg.github.com/olekraua/resume-contracts</url>
+		</repository>
 	</repositories>
 
 	<dependencies>

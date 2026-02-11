@@ -17,7 +17,8 @@ public class MessagingWebSocketConfig implements WebSocketMessageBrokerConfigure
     private final CorsProperties corsProperties;
     private final WebSocketAuthChannelInterceptor authChannelInterceptor;
 
-    public MessagingWebSocketConfig(CorsProperties corsProperties, WebSocketAuthChannelInterceptor authChannelInterceptor) {
+    public MessagingWebSocketConfig(CorsProperties corsProperties,
+            WebSocketAuthChannelInterceptor authChannelInterceptor) {
         this.corsProperties = corsProperties;
         this.authChannelInterceptor = authChannelInterceptor;
     }

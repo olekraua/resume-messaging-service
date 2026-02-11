@@ -39,6 +39,16 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import net.devstudy.resume.auth.api.security.CurrentProfileProvider;
+import net.devstudy.resume.contracts.messaging.api.event.ReadEvent;
+import net.devstudy.resume.contracts.messaging.api.model.AttachmentItem;
+import net.devstudy.resume.contracts.messaging.api.model.ConversationSummary;
+import net.devstudy.resume.contracts.messaging.api.model.CreateConversationRequest;
+import net.devstudy.resume.contracts.messaging.api.model.CreateConversationResponse;
+import net.devstudy.resume.contracts.messaging.api.model.MarkConversationReadRequest;
+import net.devstudy.resume.contracts.messaging.api.model.MessageItem;
+import net.devstudy.resume.contracts.messaging.api.model.SendMessageRequest;
+import net.devstudy.resume.contracts.messaging.api.model.UnreadCountResponse;
+import net.devstudy.resume.contracts.messaging.api.ws.MessagingRealtimeContract;
 import net.devstudy.resume.messaging.api.model.Conversation;
 import net.devstudy.resume.messaging.api.model.ConversationParticipant;
 import net.devstudy.resume.messaging.api.model.ConversationType;
@@ -103,7 +113,7 @@ public class MessagingApiController {
         }
         Conversation conversation = findOrCreateDirectConversation(currentId, otherId);
         Long resolvedOther = resolveOtherParticipant(conversation.getId(), currentId);
-        return ResponseEntity.ok(new ConversationResponse(conversation.getId(), resolvedOther));
+        return ResponseEntity.ok(new CreateConversationResponse(conversation.getId(), resolvedOther));
     }
 
     @GetMapping("/conversations")
@@ -213,26 +223,16 @@ public class MessagingApiController {
         if ((body == null || body.isBlank()) && attachmentIds.isEmpty()) {
             return ApiErrorUtils.error(HttpStatus.BAD_REQUEST, "Message body is empty", httpRequest);
         }
-        List<MessageAttachment> attachments = new ArrayList<>();
-        if (!attachmentIds.isEmpty()) {
-            List<MessageAttachment> stored = attachmentRepository.findAllById(attachmentIds);
-            if (stored.size() != attachmentIds.size()) {
-                return ApiErrorUtils.error(HttpStatus.BAD_REQUEST, "Attachment not found", httpRequest);
-            }
-            for (MessageAttachment attachment : stored) {
-                if (!conversationId.equals(attachment.getConversationId())) {
-                    return ApiErrorUtils.error(HttpStatus.BAD_REQUEST, "Attachment does not belong to conversation",
-                            httpRequest);
-                }
-                if (!currentId.equals(attachment.getUploaderId())) {
-                    return ApiErrorUtils.error(HttpStatus.BAD_REQUEST, "Attachment uploader mismatch", httpRequest);
-                }
-                if (attachment.getMessage() != null) {
-                    return ApiErrorUtils.error(HttpStatus.BAD_REQUEST, "Attachment already linked", httpRequest);
-                }
-            }
-            attachments.addAll(stored);
+        AttachmentValidationResult attachmentValidationResult = validateAttachmentsForSend(
+                conversationId,
+                currentId,
+                attachmentIds,
+                httpRequest
+        );
+        if (attachmentValidationResult.errorResponse() != null) {
+            return attachmentValidationResult.errorResponse();
         }
+        List<MessageAttachment> attachments = new ArrayList<>(attachmentValidationResult.attachments());
         Message message = new Message(conversation, currentId, body, Instant.now());
         messageRepository.save(message);
         if (!attachments.isEmpty()) {
@@ -247,7 +247,7 @@ public class MessagingApiController {
         updateLastRead(conversationId, currentId, message.getId());
         MessageItem messageItem = toMessageItem(message, attachments);
         publishAfterCommit(() -> messagingTemplate.convertAndSend(
-                "/topic/conversations/" + conversationId + "/messages",
+                MessagingRealtimeContract.conversationMessagesTopic(conversationId),
                 messageItem
         ));
         return ResponseEntity.ok(messageItem);
@@ -256,7 +256,7 @@ public class MessagingApiController {
     @PostMapping("/conversations/{id}/read")
     @Transactional
     public ResponseEntity<?> markRead(@PathVariable("id") Long conversationId,
-            @RequestBody(required = false) ReadRequest request,
+            @RequestBody(required = false) MarkConversationReadRequest request,
             HttpServletRequest httpRequest) {
         Long currentId = requireCurrentId();
         if (currentId == null) {
@@ -279,7 +279,7 @@ public class MessagingApiController {
         ReadEvent event = new ReadEvent(conversationId, currentId, lastReadMessageId);
         Long finalLastReadMessageId = lastReadMessageId;
         publishAfterCommit(() -> messagingTemplate.convertAndSend(
-                "/topic/conversations/" + conversationId + "/read",
+                MessagingRealtimeContract.conversationReadTopic(conversationId),
                 new ReadEvent(conversationId, currentId, finalLastReadMessageId)
         ));
         return ResponseEntity.ok(event);
@@ -525,6 +525,38 @@ public class MessagingApiController {
         return ids.stream().filter(Objects::nonNull).distinct().toList();
     }
 
+    private AttachmentValidationResult validateAttachmentsForSend(Long conversationId, Long currentId,
+            List<Long> attachmentIds, HttpServletRequest httpRequest) {
+        if (attachmentIds == null || attachmentIds.isEmpty()) {
+            return AttachmentValidationResult.success(List.of());
+        }
+        List<MessageAttachment> stored = attachmentRepository.findAllById(attachmentIds);
+        if (stored.size() != attachmentIds.size()) {
+            return AttachmentValidationResult.error(
+                    ApiErrorUtils.error(HttpStatus.BAD_REQUEST, "Attachment not found", httpRequest)
+            );
+        }
+        for (MessageAttachment attachment : stored) {
+            if (!conversationId.equals(attachment.getConversationId())) {
+                return AttachmentValidationResult.error(
+                        ApiErrorUtils.error(HttpStatus.BAD_REQUEST, "Attachment does not belong to conversation",
+                                httpRequest)
+                );
+            }
+            if (!currentId.equals(attachment.getUploaderId())) {
+                return AttachmentValidationResult.error(
+                        ApiErrorUtils.error(HttpStatus.BAD_REQUEST, "Attachment uploader mismatch", httpRequest)
+                );
+            }
+            if (attachment.getMessage() != null) {
+                return AttachmentValidationResult.error(
+                        ApiErrorUtils.error(HttpStatus.BAD_REQUEST, "Attachment already linked", httpRequest)
+                );
+            }
+        }
+        return AttachmentValidationResult.success(stored);
+    }
+
     private boolean isAllowedType(String contentType) {
         if (contentType == null || contentType.isBlank()) {
             return false;
@@ -571,35 +603,14 @@ public class MessagingApiController {
         });
     }
 
-    public record CreateConversationRequest(Long otherProfileId) {
-    }
+    private record AttachmentValidationResult(List<MessageAttachment> attachments, ResponseEntity<?> errorResponse) {
 
-    public record ConversationResponse(Long conversationId, Long otherProfileId) {
-    }
-
-    public record SendMessageRequest(String body, List<Long> attachmentIds) {
-    }
-
-    public record ReadRequest(Long lastReadMessageId) {
-    }
-
-    public record ConversationSummary(Long conversationId, Long otherProfileId,
-            MessageItem lastMessage, long unreadCount) {
-        public Instant lastMessageAt() {
-            return lastMessage == null ? null : lastMessage.created();
+        private static AttachmentValidationResult success(List<MessageAttachment> attachments) {
+            return new AttachmentValidationResult(attachments, null);
         }
-    }
 
-    public record MessageItem(Long id, Long senderId, String body, Instant created,
-            Instant edited, Instant deleted, List<AttachmentItem> attachments) {
-    }
-
-    public record AttachmentItem(Long id, String originalName, String contentType, long size) {
-    }
-
-    public record ReadEvent(Long conversationId, Long profileId, Long lastReadMessageId) {
-    }
-
-    public record UnreadCountResponse(long unreadCount) {
+        private static AttachmentValidationResult error(ResponseEntity<?> errorResponse) {
+            return new AttachmentValidationResult(List.of(), errorResponse);
+        }
     }
 }

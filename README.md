@@ -13,3 +13,9 @@ This service depends on artifacts from `resume-platform-libs`.
 
 Install/update shared libraries before building service repos:
 `cd ../resume-platform-libs && ./mvnw -DskipTests install`
+
+## Contracts
+This service consumes artifacts from `resume-contracts`.
+
+Install/update contracts before building service repos:
+`cd ../resume-contracts && ./mvnw -DskipTests install`

@@ -22,6 +22,11 @@
 	<dependencies>
 		<dependency>
 			<groupId>net.devstudy</groupId>
+			<artifactId>resume-messaging-contracts</artifactId>
+			<version>${project.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>net.devstudy</groupId>
 			<artifactId>resume-messaging</artifactId>
 			<version>${project.version}</version>
 		</dependency>
