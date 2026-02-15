@@ -61,6 +61,7 @@ import net.devstudy.resume.messaging.internal.repository.storage.ConversationPar
 import net.devstudy.resume.messaging.internal.repository.storage.ConversationRepository;
 import net.devstudy.resume.messaging.internal.repository.storage.MessageAttachmentRepository;
 import net.devstudy.resume.messaging.internal.repository.storage.MessageRepository;
+import net.devstudy.resume.ms.messaging.outbox.MessagingOutboxService;
 import net.devstudy.resume.web.api.ApiErrorUtils;
 
 @RestController
@@ -77,6 +78,7 @@ public class MessagingApiController {
     private final MessageAttachmentProperties attachmentProperties;
     private final CurrentProfileProvider currentProfileProvider;
     private final SimpMessagingTemplate messagingTemplate;
+    private final MessagingOutboxService messagingOutboxService;
 
     public MessagingApiController(ConversationRepository conversationRepository,
             ConversationParticipantRepository participantRepository,
@@ -85,7 +87,8 @@ public class MessagingApiController {
             MessageAttachmentStorage attachmentStorage,
             MessageAttachmentProperties attachmentProperties,
             CurrentProfileProvider currentProfileProvider,
-            SimpMessagingTemplate messagingTemplate) {
+            SimpMessagingTemplate messagingTemplate,
+            MessagingOutboxService messagingOutboxService) {
         this.conversationRepository = conversationRepository;
         this.participantRepository = participantRepository;
         this.messageRepository = messageRepository;
@@ -94,6 +97,7 @@ public class MessagingApiController {
         this.attachmentProperties = attachmentProperties;
         this.currentProfileProvider = currentProfileProvider;
         this.messagingTemplate = messagingTemplate;
+        this.messagingOutboxService = messagingOutboxService;
     }
 
     @PostMapping("/conversations")
@@ -246,6 +250,7 @@ public class MessagingApiController {
         conversationRepository.save(conversation);
         updateLastRead(conversationId, currentId, message.getId());
         MessageItem messageItem = toMessageItem(message, attachments);
+        messagingOutboxService.enqueueMessageSent(conversationId, messageItem);
         publishAfterCommit(() -> messagingTemplate.convertAndSend(
                 MessagingRealtimeContract.conversationMessagesTopic(conversationId),
                 messageItem
@@ -277,6 +282,7 @@ public class MessagingApiController {
         }
         updateLastRead(conversationId, currentId, lastReadMessageId);
         ReadEvent event = new ReadEvent(conversationId, currentId, lastReadMessageId);
+        messagingOutboxService.enqueueConversationRead(event);
         Long finalLastReadMessageId = lastReadMessageId;
         publishAfterCommit(() -> messagingTemplate.convertAndSend(
                 MessagingRealtimeContract.conversationReadTopic(conversationId),

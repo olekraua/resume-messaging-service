@@ -7,12 +7,14 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.FilterType;
 import org.springframework.context.annotation.Import;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 import net.devstudy.resume.web.config.CorsConfig;
 import net.devstudy.resume.web.config.CorsProperties;
 import net.devstudy.resume.web.security.JwtResourceServerConfig;
 
 @SpringBootApplication
+@EnableScheduling
 @ConfigurationPropertiesScan(basePackages = "net.devstudy.resume")
 @EnableConfigurationProperties(CorsProperties.class)
 @ComponentScan(
