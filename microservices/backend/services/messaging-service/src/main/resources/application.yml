@@ -37,6 +37,17 @@ app:
     allowed-origins:
       - ${APP_CORS_ALLOWED_ORIGINS:https://localhost:4200}
   messaging:
+    realtime:
+      broker-relay:
+        host: ${APP_MESSAGING_BROKER_RELAY_HOST:${RABBITMQ_HOST:localhost}}
+        port: ${APP_MESSAGING_BROKER_RELAY_PORT:${RABBITMQ_STOMP_PORT:61613}}
+        client-login: ${APP_MESSAGING_BROKER_RELAY_CLIENT_LOGIN:${RABBITMQ_USER:guest}}
+        client-passcode: ${APP_MESSAGING_BROKER_RELAY_CLIENT_PASSCODE:${RABBITMQ_PASS:guest}}
+        system-login: ${APP_MESSAGING_BROKER_RELAY_SYSTEM_LOGIN:${RABBITMQ_USER:guest}}
+        system-passcode: ${APP_MESSAGING_BROKER_RELAY_SYSTEM_PASSCODE:${RABBITMQ_PASS:guest}}
+        virtual-host: ${APP_MESSAGING_BROKER_RELAY_VHOST:${RABBITMQ_VHOST:/}}
+        system-heartbeat-send-interval-ms: ${APP_MESSAGING_BROKER_RELAY_SYSTEM_HEARTBEAT_SEND_INTERVAL_MS:10000}
+        system-heartbeat-receive-interval-ms: ${APP_MESSAGING_BROKER_RELAY_SYSTEM_HEARTBEAT_RECEIVE_INTERVAL_MS:10000}
     outbox:
       enabled: ${APP_MESSAGING_OUTBOX_ENABLED:true}
       poll-interval-ms: ${APP_MESSAGING_OUTBOX_POLL_INTERVAL_MS:1000}

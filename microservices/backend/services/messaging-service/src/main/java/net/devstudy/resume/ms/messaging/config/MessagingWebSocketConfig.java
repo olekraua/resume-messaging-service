@@ -16,11 +16,14 @@ public class MessagingWebSocketConfig implements WebSocketMessageBrokerConfigure
 
     private final CorsProperties corsProperties;
     private final WebSocketAuthChannelInterceptor authChannelInterceptor;
+    private final MessagingBrokerRelayProperties brokerRelayProperties;
 
     public MessagingWebSocketConfig(CorsProperties corsProperties,
-            WebSocketAuthChannelInterceptor authChannelInterceptor) {
+            WebSocketAuthChannelInterceptor authChannelInterceptor,
+            MessagingBrokerRelayProperties brokerRelayProperties) {
         this.corsProperties = corsProperties;
         this.authChannelInterceptor = authChannelInterceptor;
+        this.brokerRelayProperties = brokerRelayProperties;
     }
 
     @Override
@@ -34,7 +37,16 @@ public class MessagingWebSocketConfig implements WebSocketMessageBrokerConfigure
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
-        config.enableSimpleBroker("/topic", "/queue");
+        config.enableStompBrokerRelay("/topic", "/queue")
+                .setRelayHost(brokerRelayProperties.getHost())
+                .setRelayPort(brokerRelayProperties.getPort())
+                .setClientLogin(brokerRelayProperties.getClientLogin())
+                .setClientPasscode(brokerRelayProperties.getClientPasscode())
+                .setSystemLogin(brokerRelayProperties.getSystemLogin())
+                .setSystemPasscode(brokerRelayProperties.getSystemPasscode())
+                .setVirtualHost(brokerRelayProperties.getVirtualHost())
+                .setSystemHeartbeatSendInterval(brokerRelayProperties.getSystemHeartbeatSendIntervalMs())
+                .setSystemHeartbeatReceiveInterval(brokerRelayProperties.getSystemHeartbeatReceiveIntervalMs());
         config.setApplicationDestinationPrefixes("/app");
         config.setUserDestinationPrefix("/user");
     }
