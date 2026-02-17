@@ -2,6 +2,9 @@ package net.devstudy.resume.ms.messaging.ws;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -19,6 +22,8 @@ import org.springframework.stereotype.Component;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import net.devstudy.resume.auth.api.model.CurrentProfile;
+import net.devstudy.resume.messaging.internal.repository.storage.ConversationParticipantRepository;
 import net.devstudy.resume.web.security.CurrentProfileJwtConverter;
 
 @Component
@@ -32,13 +37,19 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
             "X-Authorization",
             "x-authorization"
     );
+    private static final Pattern CONVERSATION_TOPIC_PATTERN =
+            Pattern.compile("^/topic/conversations/(\\d+)/.+$");
 
     private final JwtDecoder jwtDecoder;
     private final CurrentProfileJwtConverter jwtConverter;
+    private final ConversationParticipantRepository participantRepository;
 
-    public WebSocketAuthChannelInterceptor(JwtDecoder jwtDecoder, CurrentProfileJwtConverter jwtConverter) {
+    public WebSocketAuthChannelInterceptor(JwtDecoder jwtDecoder,
+            CurrentProfileJwtConverter jwtConverter,
+            ConversationParticipantRepository participantRepository) {
         this.jwtDecoder = jwtDecoder;
         this.jwtConverter = jwtConverter;
+        this.participantRepository = participantRepository;
     }
 
     @Override
@@ -65,17 +76,58 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
             }
             accessor.setUser(authentication);
             SecurityContextHolder.getContext().setAuthentication(authentication);
-        } else if (StompCommand.SUBSCRIBE.equals(accessor.getCommand())
-                || StompCommand.SEND.equals(accessor.getCommand())) {
-            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-            if (authentication == null) {
-                var principal = accessor.getUser();
-                if (principal instanceof Authentication auth) {
-                    SecurityContextHolder.getContext().setAuthentication(auth);
-                }
-            }
+        } else if (StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
+            Authentication authentication = ensureAuthentication(accessor);
+            authorizeConversationSubscription(accessor, authentication);
+        } else if (StompCommand.SEND.equals(accessor.getCommand())) {
+            ensureAuthentication(accessor);
         }
         return message;
+    }
+
+    private Authentication ensureAuthentication(StompHeaderAccessor accessor) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null) {
+            return authentication;
+        }
+        var principal = accessor.getUser();
+        if (principal instanceof Authentication auth) {
+            SecurityContextHolder.getContext().setAuthentication(auth);
+            return auth;
+        }
+        return null;
+    }
+
+    private void authorizeConversationSubscription(StompHeaderAccessor accessor, Authentication authentication) {
+        if (authentication == null) {
+            throw new AccessDeniedException("Subscription denied");
+        }
+        Matcher matcher = CONVERSATION_TOPIC_PATTERN.matcher(Optional.ofNullable(accessor.getDestination()).orElse(""));
+        if (!matcher.matches()) {
+            throw new AccessDeniedException("Subscription denied");
+        }
+        Long conversationId = Long.parseLong(matcher.group(1));
+        Long profileId = resolveProfileId(authentication);
+        if (profileId == null || !isParticipant(conversationId, profileId)) {
+            throw new AccessDeniedException("Subscription denied");
+        }
+    }
+
+    private Long resolveProfileId(Authentication authentication) {
+        if (authentication == null) {
+            return null;
+        }
+        if (authentication.getPrincipal() instanceof CurrentProfile currentProfile) {
+            return currentProfile.getId();
+        }
+        return null;
+    }
+
+    private boolean isParticipant(Long conversationId, Long profileId) {
+        if (conversationId == null || profileId == null) {
+            return false;
+        }
+        return participantRepository.findByConversationIdAndProfileId(conversationId, profileId).isPresent();
     }
 
     private String resolveBearer(StompHeaderAccessor accessor) {
