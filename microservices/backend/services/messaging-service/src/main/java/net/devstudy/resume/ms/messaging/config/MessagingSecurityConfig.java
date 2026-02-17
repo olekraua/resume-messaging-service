@@ -33,6 +33,7 @@ public class MessagingSecurityConfig {
                     auth
                             .requestMatchers("/ws/**").permitAll()
                             .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                            .requestMatchers("/actuator/info", "/actuator/prometheus").permitAll()
                             .requestMatchers("/actuator/**").authenticated()
                             .requestMatchers("/api/**").authenticated();
                     auth.anyRequest().denyAll();

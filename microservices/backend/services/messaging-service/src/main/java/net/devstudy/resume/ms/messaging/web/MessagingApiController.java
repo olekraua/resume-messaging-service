@@ -1,7 +1,6 @@
 package net.devstudy.resume.ms.messaging.web;
 
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -14,7 +13,6 @@ import java.util.stream.Collectors;
 
 import jakarta.servlet.http.HttpServletRequest;
 
-import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -343,11 +341,10 @@ public class MessagingApiController {
         if (!isParticipant(attachment.getConversationId(), currentId)) {
             return ApiErrorUtils.error(HttpStatus.NOT_FOUND, "Attachment not found", httpRequest);
         }
-        Path path = attachmentStorage.resolvePath(attachment.getStorageKey());
-        if (path == null || !path.toFile().exists()) {
+        Resource resource = attachmentStorage.resolveResource(attachment.getStorageKey());
+        if (resource == null) {
             return ApiErrorUtils.error(HttpStatus.NOT_FOUND, "Attachment not found", httpRequest);
         }
-        Resource resource = new FileSystemResource(path);
         ContentDisposition disposition = ContentDisposition.attachment()
                 .filename(attachment.getOriginalName(), StandardCharsets.UTF_8)
                 .build();
