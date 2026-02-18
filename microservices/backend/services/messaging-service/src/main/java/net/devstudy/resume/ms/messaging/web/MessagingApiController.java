@@ -46,7 +46,6 @@ import net.devstudy.resume.contracts.messaging.api.model.MarkConversationReadReq
 import net.devstudy.resume.contracts.messaging.api.model.MessageItem;
 import net.devstudy.resume.contracts.messaging.api.model.SendMessageRequest;
 import net.devstudy.resume.contracts.messaging.api.model.UnreadCountResponse;
-import net.devstudy.resume.contracts.messaging.api.ws.MessagingRealtimeContract;
 import net.devstudy.resume.messaging.api.model.Conversation;
 import net.devstudy.resume.messaging.api.model.ConversationParticipant;
 import net.devstudy.resume.messaging.api.model.ConversationType;
@@ -67,6 +66,8 @@ import net.devstudy.resume.web.api.ApiErrorUtils;
 public class MessagingApiController {
 
     private static final int DEFAULT_PAGE_SIZE = 50;
+    private static final String USER_DESTINATION_MESSAGES_TEMPLATE = "/queue/conversations/%d/messages";
+    private static final String USER_DESTINATION_READ_TEMPLATE = "/queue/conversations/%d/read";
 
     private final ConversationRepository conversationRepository;
     private final ConversationParticipantRepository participantRepository;
@@ -249,10 +250,7 @@ public class MessagingApiController {
         updateLastRead(conversationId, currentId, message.getId());
         MessageItem messageItem = toMessageItem(message, attachments);
         messagingOutboxService.enqueueMessageSent(conversationId, messageItem);
-        publishAfterCommit(() -> messagingTemplate.convertAndSend(
-                MessagingRealtimeContract.conversationMessagesTopic(conversationId),
-                messageItem
-        ));
+        publishAfterCommit(() -> deliverMessageEventToParticipants(conversationId, messageItem));
         return ResponseEntity.ok(messageItem);
     }
 
@@ -281,11 +279,7 @@ public class MessagingApiController {
         updateLastRead(conversationId, currentId, lastReadMessageId);
         ReadEvent event = new ReadEvent(conversationId, currentId, lastReadMessageId);
         messagingOutboxService.enqueueConversationRead(event);
-        Long finalLastReadMessageId = lastReadMessageId;
-        publishAfterCommit(() -> messagingTemplate.convertAndSend(
-                MessagingRealtimeContract.conversationReadTopic(conversationId),
-                new ReadEvent(conversationId, currentId, finalLastReadMessageId)
-        ));
+        publishAfterCommit(() -> deliverReadEventToParticipants(conversationId, event));
         return ResponseEntity.ok(event);
     }
 
@@ -437,6 +431,37 @@ public class MessagingApiController {
         participant.setLastReadMessageId(lastReadMessageId);
         participant.setLastReadAt(Instant.now());
         participantRepository.save(participant);
+    }
+
+    private void deliverMessageEventToParticipants(Long conversationId, MessageItem payload) {
+        if (conversationId == null || payload == null) {
+            return;
+        }
+        String destination = USER_DESTINATION_MESSAGES_TEMPLATE.formatted(conversationId);
+        for (Long participantProfileId : resolveParticipantProfileIds(conversationId)) {
+            messagingTemplate.convertAndSendToUser(String.valueOf(participantProfileId), destination, payload);
+        }
+    }
+
+    private void deliverReadEventToParticipants(Long conversationId, ReadEvent payload) {
+        if (conversationId == null || payload == null) {
+            return;
+        }
+        String destination = USER_DESTINATION_READ_TEMPLATE.formatted(conversationId);
+        for (Long participantProfileId : resolveParticipantProfileIds(conversationId)) {
+            messagingTemplate.convertAndSendToUser(String.valueOf(participantProfileId), destination, payload);
+        }
+    }
+
+    private List<Long> resolveParticipantProfileIds(Long conversationId) {
+        if (conversationId == null) {
+            return List.of();
+        }
+        return participantRepository.findByConversationId(conversationId).stream()
+                .map(ConversationParticipant::getProfileId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
     }
 
     private long countUnread(Long conversationId, Long profileId, Long lastReadMessageId) {

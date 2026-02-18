@@ -2,9 +2,6 @@ package net.devstudy.resume.ms.messaging.ws;
 
 import java.util.List;
 import java.util.Locale;
-import java.util.Optional;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -37,19 +34,20 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
             "X-Authorization",
             "x-authorization"
     );
-    private static final Pattern CONVERSATION_TOPIC_PATTERN =
-            Pattern.compile("^/topic/conversations/(\\d+)/.+$");
 
     private final JwtDecoder jwtDecoder;
     private final CurrentProfileJwtConverter jwtConverter;
     private final ConversationParticipantRepository participantRepository;
+    private final ConversationTopicDestinationParser destinationParser;
 
     public WebSocketAuthChannelInterceptor(JwtDecoder jwtDecoder,
             CurrentProfileJwtConverter jwtConverter,
-            ConversationParticipantRepository participantRepository) {
+            ConversationParticipantRepository participantRepository,
+            ConversationTopicDestinationParser destinationParser) {
         this.jwtDecoder = jwtDecoder;
         this.jwtConverter = jwtConverter;
         this.participantRepository = participantRepository;
+        this.destinationParser = destinationParser;
     }
 
     @Override
@@ -74,13 +72,14 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
             if (authentication == null) {
                 throw new AccessDeniedException("Unauthorized");
             }
-            accessor.setUser(authentication);
-            SecurityContextHolder.getContext().setAuthentication(authentication);
+            Authentication wsAuthentication = toWebSocketAuthentication(authentication);
+            accessor.setUser(wsAuthentication);
+            SecurityContextHolder.getContext().setAuthentication(wsAuthentication);
         } else if (StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
             Authentication authentication = ensureAuthentication(accessor);
             authorizeConversationSubscription(accessor, authentication);
         } else if (StompCommand.SEND.equals(accessor.getCommand())) {
-            ensureAuthentication(accessor);
+            throw new AccessDeniedException("STOMP SEND is not supported");
         }
         return message;
     }
@@ -102,11 +101,7 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
         if (authentication == null) {
             throw new AccessDeniedException("Subscription denied");
         }
-        Matcher matcher = CONVERSATION_TOPIC_PATTERN.matcher(Optional.ofNullable(accessor.getDestination()).orElse(""));
-        if (!matcher.matches()) {
-            throw new AccessDeniedException("Subscription denied");
-        }
-        Long conversationId = Long.parseLong(matcher.group(1));
+        Long conversationId = destinationParser.extractConversationId(accessor.getDestination()).orElse(null);
         Long profileId = resolveProfileId(authentication);
         if (profileId == null || !isParticipant(conversationId, profileId)) {
             throw new AccessDeniedException("Subscription denied");
@@ -128,6 +123,25 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
             return false;
         }
         return participantRepository.findByConversationIdAndProfileId(conversationId, profileId).isPresent();
+    }
+
+    private Authentication toWebSocketAuthentication(AbstractAuthenticationToken authentication) {
+        if (authentication == null) {
+            return null;
+        }
+        if (!(authentication.getPrincipal() instanceof CurrentProfile currentProfile)) {
+            throw new AccessDeniedException("Unauthorized");
+        }
+        if (currentProfile.getId() == null || currentProfile.getId() <= 0) {
+            throw new AccessDeniedException("Unauthorized");
+        }
+        WebSocketProfileAuthenticationToken wsAuthentication = new WebSocketProfileAuthenticationToken(
+                currentProfile,
+                authentication.getCredentials(),
+                authentication.getAuthorities()
+        );
+        wsAuthentication.setDetails(authentication.getDetails());
+        return wsAuthentication;
     }
 
     private String resolveBearer(StompHeaderAccessor accessor) {

@@ -1,6 +1,8 @@
 package net.devstudy.resume.ms.messaging.ws;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -22,6 +24,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 
 import net.devstudy.resume.auth.api.model.CurrentProfile;
@@ -35,12 +38,18 @@ class WebSocketAuthChannelInterceptorTest {
     private final CurrentProfileJwtConverter jwtConverter = mock(CurrentProfileJwtConverter.class);
     private final ConversationParticipantRepository participantRepository =
             mock(ConversationParticipantRepository.class);
+    private final ConversationTopicDestinationParser destinationParser = new ConversationTopicDestinationParser();
 
     private WebSocketAuthChannelInterceptor interceptor;
 
     @BeforeEach
     void setUp() {
-        interceptor = new WebSocketAuthChannelInterceptor(jwtDecoder, jwtConverter, participantRepository);
+        interceptor = new WebSocketAuthChannelInterceptor(
+                jwtDecoder,
+                jwtConverter,
+                participantRepository,
+                destinationParser
+        );
     }
 
     @AfterEach
@@ -51,7 +60,7 @@ class WebSocketAuthChannelInterceptorTest {
     @Test
     void shouldAllowSubscribeToConversationTopicForParticipant() {
         Authentication authentication = authentication(7L);
-        Message<byte[]> message = subscribeMessage(authentication, "/topic/conversations/42/messages");
+        Message<byte[]> message = subscribeMessage(authentication, "/user/queue/conversations/42/messages");
         when(participantRepository.findByConversationIdAndProfileId(eq(42L), eq(7L)))
                 .thenReturn(Optional.of(mock(ConversationParticipant.class)));
 
@@ -63,7 +72,7 @@ class WebSocketAuthChannelInterceptorTest {
     @Test
     void shouldDenySubscribeWhenNotParticipant() {
         Authentication authentication = authentication(7L);
-        Message<byte[]> message = subscribeMessage(authentication, "/topic/conversations/42/messages");
+        Message<byte[]> message = subscribeMessage(authentication, "/user/queue/conversations/42/messages");
         when(participantRepository.findByConversationIdAndProfileId(eq(42L), eq(7L)))
                 .thenReturn(Optional.empty());
 
@@ -82,11 +91,34 @@ class WebSocketAuthChannelInterceptorTest {
 
     @Test
     void shouldDenySubscribeWithoutAuthentication() {
-        Message<byte[]> message = subscribeMessage(null, "/topic/conversations/42/messages");
+        Message<byte[]> message = subscribeMessage(null, "/user/queue/conversations/42/messages");
 
         assertThrows(AccessDeniedException.class, () -> interceptor.preSend(message, null));
 
         verifyNoInteractions(participantRepository);
+    }
+
+    @Test
+    void shouldSetPrincipalNameAsProfileIdOnConnect() {
+        Jwt jwt = mock(Jwt.class);
+        Authentication authentication = authentication(7L);
+        Message<byte[]> message = connectMessage("valid-token");
+        when(jwtDecoder.decode("valid-token")).thenReturn(jwt);
+        when(jwtConverter.convert(jwt)).thenReturn((UsernamePasswordAuthenticationToken) authentication);
+
+        Message<?> result = interceptor.preSend(message, null);
+
+        StompHeaderAccessor accessor = StompHeaderAccessor.wrap(result);
+        assertNotNull(accessor.getUser());
+        assertEquals("7", accessor.getUser().getName());
+    }
+
+    @Test
+    void shouldDenySendCommand() {
+        Authentication authentication = authentication(7L);
+        Message<byte[]> message = sendMessage(authentication);
+
+        assertThrows(AccessDeniedException.class, () -> interceptor.preSend(message, null));
     }
 
     private Authentication authentication(Long profileId) {
@@ -99,6 +131,23 @@ class WebSocketAuthChannelInterceptorTest {
         accessor.setSessionId("session-1");
         accessor.setSubscriptionId("sub-1");
         accessor.setDestination(destination);
+        accessor.setUser(authentication);
+        accessor.setLeaveMutable(true);
+        return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+    }
+
+    private Message<byte[]> connectMessage(String bearerToken) {
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.CONNECT);
+        accessor.setSessionId("session-connect");
+        accessor.setNativeHeader("Authorization", "Bearer " + bearerToken);
+        accessor.setLeaveMutable(true);
+        return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
+    }
+
+    private Message<byte[]> sendMessage(Authentication authentication) {
+        StompHeaderAccessor accessor = StompHeaderAccessor.create(StompCommand.SEND);
+        accessor.setSessionId("session-send");
+        accessor.setDestination("/app/messages/send");
         accessor.setUser(authentication);
         accessor.setLeaveMutable(true);
         return MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());

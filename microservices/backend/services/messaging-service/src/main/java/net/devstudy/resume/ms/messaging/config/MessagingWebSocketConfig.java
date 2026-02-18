@@ -14,6 +14,9 @@ import net.devstudy.resume.ms.messaging.ws.WebSocketAuthChannelInterceptor;
 @EnableWebSocketMessageBroker
 public class MessagingWebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
+    private static final String USER_DESTINATION_BROADCAST = "/topic/unresolved-user-destination";
+    private static final String USER_REGISTRY_BROADCAST = "/topic/simp-user-registry";
+
     private final CorsProperties corsProperties;
     private final WebSocketAuthChannelInterceptor authChannelInterceptor;
     private final MessagingBrokerRelayProperties brokerRelayProperties;
@@ -46,7 +49,9 @@ public class MessagingWebSocketConfig implements WebSocketMessageBrokerConfigure
                 .setSystemPasscode(brokerRelayProperties.getSystemPasscode())
                 .setVirtualHost(brokerRelayProperties.getVirtualHost())
                 .setSystemHeartbeatSendInterval(brokerRelayProperties.getSystemHeartbeatSendIntervalMs())
-                .setSystemHeartbeatReceiveInterval(brokerRelayProperties.getSystemHeartbeatReceiveIntervalMs());
+                .setSystemHeartbeatReceiveInterval(brokerRelayProperties.getSystemHeartbeatReceiveIntervalMs())
+                .setUserDestinationBroadcast(USER_DESTINATION_BROADCAST)
+                .setUserRegistryBroadcast(USER_REGISTRY_BROADCAST);
         config.setApplicationDestinationPrefixes("/app");
         config.setUserDestinationPrefix("/user");
     }
