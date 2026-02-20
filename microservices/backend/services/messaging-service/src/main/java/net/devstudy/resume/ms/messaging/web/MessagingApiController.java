@@ -13,6 +13,7 @@ import java.util.stream.Collectors;
 
 import jakarta.servlet.http.HttpServletRequest;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -76,7 +77,7 @@ public class MessagingApiController {
     private final MessageAttachmentStorage attachmentStorage;
     private final MessageAttachmentProperties attachmentProperties;
     private final CurrentProfileProvider currentProfileProvider;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final ObjectProvider<SimpMessagingTemplate> messagingTemplateProvider;
     private final MessagingOutboxService messagingOutboxService;
 
     public MessagingApiController(ConversationRepository conversationRepository,
@@ -86,7 +87,7 @@ public class MessagingApiController {
             MessageAttachmentStorage attachmentStorage,
             MessageAttachmentProperties attachmentProperties,
             CurrentProfileProvider currentProfileProvider,
-            SimpMessagingTemplate messagingTemplate,
+            ObjectProvider<SimpMessagingTemplate> messagingTemplateProvider,
             MessagingOutboxService messagingOutboxService) {
         this.conversationRepository = conversationRepository;
         this.participantRepository = participantRepository;
@@ -95,7 +96,7 @@ public class MessagingApiController {
         this.attachmentStorage = attachmentStorage;
         this.attachmentProperties = attachmentProperties;
         this.currentProfileProvider = currentProfileProvider;
-        this.messagingTemplate = messagingTemplate;
+        this.messagingTemplateProvider = messagingTemplateProvider;
         this.messagingOutboxService = messagingOutboxService;
     }
 
@@ -437,6 +438,10 @@ public class MessagingApiController {
         if (conversationId == null || payload == null) {
             return;
         }
+        SimpMessagingTemplate messagingTemplate = messagingTemplateProvider.getIfAvailable();
+        if (messagingTemplate == null) {
+            return;
+        }
         String destination = USER_DESTINATION_MESSAGES_TEMPLATE.formatted(conversationId);
         for (Long participantProfileId : resolveParticipantProfileIds(conversationId)) {
             messagingTemplate.convertAndSendToUser(String.valueOf(participantProfileId), destination, payload);
@@ -445,6 +450,10 @@ public class MessagingApiController {
 
     private void deliverReadEventToParticipants(Long conversationId, ReadEvent payload) {
         if (conversationId == null || payload == null) {
+            return;
+        }
+        SimpMessagingTemplate messagingTemplate = messagingTemplateProvider.getIfAvailable();
+        if (messagingTemplate == null) {
             return;
         }
         String destination = USER_DESTINATION_READ_TEMPLATE.formatted(conversationId);

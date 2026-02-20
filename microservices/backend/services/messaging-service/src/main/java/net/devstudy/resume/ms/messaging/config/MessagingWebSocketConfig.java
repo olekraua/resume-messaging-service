@@ -1,5 +1,6 @@
 package net.devstudy.resume.ms.messaging.config;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
@@ -12,6 +13,7 @@ import net.devstudy.resume.ms.messaging.ws.WebSocketAuthChannelInterceptor;
 
 @Configuration
 @EnableWebSocketMessageBroker
+@ConditionalOnProperty(name = "app.messaging.realtime.stomp.enabled", havingValue = "true")
 public class MessagingWebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private static final String USER_DESTINATION_BROADCAST = "/topic/unresolved-user-destination";
