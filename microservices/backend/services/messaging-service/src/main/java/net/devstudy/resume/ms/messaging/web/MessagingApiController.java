@@ -13,7 +13,6 @@ import java.util.stream.Collectors;
 
 import jakarta.servlet.http.HttpServletRequest;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -22,7 +21,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.ContentDisposition;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -67,8 +65,6 @@ import net.devstudy.resume.web.api.ApiErrorUtils;
 public class MessagingApiController {
 
     private static final int DEFAULT_PAGE_SIZE = 50;
-    private static final String USER_DESTINATION_MESSAGES_TEMPLATE = "/queue/conversations/%d/messages";
-    private static final String USER_DESTINATION_READ_TEMPLATE = "/queue/conversations/%d/read";
 
     private final ConversationRepository conversationRepository;
     private final ConversationParticipantRepository participantRepository;
@@ -77,7 +73,6 @@ public class MessagingApiController {
     private final MessageAttachmentStorage attachmentStorage;
     private final MessageAttachmentProperties attachmentProperties;
     private final CurrentProfileProvider currentProfileProvider;
-    private final ObjectProvider<SimpMessagingTemplate> messagingTemplateProvider;
     private final MessagingOutboxService messagingOutboxService;
 
     public MessagingApiController(ConversationRepository conversationRepository,
@@ -87,7 +82,6 @@ public class MessagingApiController {
             MessageAttachmentStorage attachmentStorage,
             MessageAttachmentProperties attachmentProperties,
             CurrentProfileProvider currentProfileProvider,
-            ObjectProvider<SimpMessagingTemplate> messagingTemplateProvider,
             MessagingOutboxService messagingOutboxService) {
         this.conversationRepository = conversationRepository;
         this.participantRepository = participantRepository;
@@ -96,7 +90,6 @@ public class MessagingApiController {
         this.attachmentStorage = attachmentStorage;
         this.attachmentProperties = attachmentProperties;
         this.currentProfileProvider = currentProfileProvider;
-        this.messagingTemplateProvider = messagingTemplateProvider;
         this.messagingOutboxService = messagingOutboxService;
     }
 
@@ -251,7 +244,6 @@ public class MessagingApiController {
         updateLastRead(conversationId, currentId, message.getId());
         MessageItem messageItem = toMessageItem(message, attachments);
         messagingOutboxService.enqueueMessageSent(conversationId, messageItem);
-        publishAfterCommit(() -> deliverMessageEventToParticipants(conversationId, messageItem));
         return ResponseEntity.ok(messageItem);
     }
 
@@ -280,7 +272,6 @@ public class MessagingApiController {
         updateLastRead(conversationId, currentId, lastReadMessageId);
         ReadEvent event = new ReadEvent(conversationId, currentId, lastReadMessageId);
         messagingOutboxService.enqueueConversationRead(event);
-        publishAfterCommit(() -> deliverReadEventToParticipants(conversationId, event));
         return ResponseEntity.ok(event);
     }
 
@@ -432,45 +423,6 @@ public class MessagingApiController {
         participant.setLastReadMessageId(lastReadMessageId);
         participant.setLastReadAt(Instant.now());
         participantRepository.save(participant);
-    }
-
-    private void deliverMessageEventToParticipants(Long conversationId, MessageItem payload) {
-        if (conversationId == null || payload == null) {
-            return;
-        }
-        SimpMessagingTemplate messagingTemplate = messagingTemplateProvider.getIfAvailable();
-        if (messagingTemplate == null) {
-            return;
-        }
-        String destination = USER_DESTINATION_MESSAGES_TEMPLATE.formatted(conversationId);
-        for (Long participantProfileId : resolveParticipantProfileIds(conversationId)) {
-            messagingTemplate.convertAndSendToUser(String.valueOf(participantProfileId), destination, payload);
-        }
-    }
-
-    private void deliverReadEventToParticipants(Long conversationId, ReadEvent payload) {
-        if (conversationId == null || payload == null) {
-            return;
-        }
-        SimpMessagingTemplate messagingTemplate = messagingTemplateProvider.getIfAvailable();
-        if (messagingTemplate == null) {
-            return;
-        }
-        String destination = USER_DESTINATION_READ_TEMPLATE.formatted(conversationId);
-        for (Long participantProfileId : resolveParticipantProfileIds(conversationId)) {
-            messagingTemplate.convertAndSendToUser(String.valueOf(participantProfileId), destination, payload);
-        }
-    }
-
-    private List<Long> resolveParticipantProfileIds(Long conversationId) {
-        if (conversationId == null) {
-            return List.of();
-        }
-        return participantRepository.findByConversationId(conversationId).stream()
-                .map(ConversationParticipant::getProfileId)
-                .filter(Objects::nonNull)
-                .distinct()
-                .toList();
     }
 
     private long countUnread(Long conversationId, Long profileId, Long lastReadMessageId) {

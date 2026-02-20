@@ -31,7 +31,6 @@ public class MessagingSecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> {
                     auth
-                            .requestMatchers("/ws/**").permitAll()
                             .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                             .requestMatchers("/actuator/info", "/actuator/prometheus").permitAll()
                             .requestMatchers("/actuator/**").authenticated()

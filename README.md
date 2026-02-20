@@ -9,19 +9,8 @@ Single-service repository for `microservices/backend/services/messaging-service`
 `./mvnw -pl microservices/backend/services/messaging-service -am spring-boot:run`
 
 ## Realtime transport
-STOMP broker relay is now optional and disabled by default:
-- `APP_MESSAGING_STOMP_ENABLED=false` (default)
-
-When STOMP mode is enabled, configure:
-- `APP_MESSAGING_BROKER_RELAY_HOST` (default: `localhost`)
-- `APP_MESSAGING_BROKER_RELAY_PORT` (default: `61613`)
-- `APP_MESSAGING_BROKER_RELAY_CLIENT_LOGIN`
-- `APP_MESSAGING_BROKER_RELAY_CLIENT_PASSCODE`
-- `APP_MESSAGING_BROKER_RELAY_SYSTEM_LOGIN`
-- `APP_MESSAGING_BROKER_RELAY_SYSTEM_PASSCODE`
-- `APP_MESSAGING_BROKER_RELAY_VHOST` (default: `/`)
-
-Recommended mode is Kafka outbox + `resume-realtime-service` MQTT/WebSocket fanout.
+Legacy broker-relay transport is fully removed from this service.
+Realtime delivery is handled by Kafka outbox + `resume-realtime-service` fanout (`rt-v2` and optional MQTT over WebSocket).
 
 ## Shared libraries
 This service depends on artifacts from `resume-platform-libs`.
