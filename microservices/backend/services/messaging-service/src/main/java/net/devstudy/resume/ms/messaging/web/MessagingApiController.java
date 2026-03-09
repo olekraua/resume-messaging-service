@@ -23,8 +23,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.ContentDisposition;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -574,22 +572,6 @@ public class MessagingApiController {
         } catch (Exception ex) {
             return MediaType.APPLICATION_OCTET_STREAM;
         }
-    }
-
-    private void publishAfterCommit(Runnable action) {
-        if (action == null) {
-            return;
-        }
-        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
-            action.run();
-            return;
-        }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                action.run();
-            }
-        });
     }
 
     private record AttachmentValidationResult(List<MessageAttachment> attachments, ResponseEntity<?> errorResponse) {
